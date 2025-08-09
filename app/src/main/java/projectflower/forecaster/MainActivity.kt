@@ -1,59 +1,385 @@
 package projectflower.forecaster
 
 import android.os.Bundle
-import com.google.android.material.snackbar.Snackbar
+import android.util.Log
+import android.view.View
+import android.widget.TextView
+import androidx.annotation.UiThread
 import androidx.appcompat.app.AppCompatActivity
-import androidx.navigation.findNavController
-import androidx.navigation.ui.AppBarConfiguration
-import androidx.navigation.ui.navigateUp
-import androidx.navigation.ui.setupActionBarWithNavController
-import android.view.Menu
-import android.view.MenuItem
+import androidx.core.view.isVisible
+import androidx.datastore.preferences.core.edit
+import androidx.fragment.app.DialogFragment
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import projectflower.forecaster.databinding.ActivityMainBinding
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), AreaSelectDialogFragment.NoticeDialogListener {
 
-    private lateinit var appBarConfiguration: AppBarConfiguration
+    private lateinit var addRowButton: FloatingActionButton
     private lateinit var binding: ActivityMainBinding
+    private lateinit var dates: Array<LocalDate>
+    private lateinit var editButton: FloatingActionButton
+    private lateinit var endEditButton: FloatingActionButton
+    private lateinit var headers: Array<TextView>
+    private lateinit var weatherListAdapter: WeatherListAdapter
+    private lateinit var updateButton: FloatingActionButton
+    private lateinit var mainView: View
+    private var weathersUpdateNeeded: Boolean = true
+
+    // Over-ride Methods
+
+    /** エリア選択ダイアログでエラーが発生した場合のリスナー */
+    override fun onAreaSelectDialogErrorOccurred(
+        dialog: DialogFragment,
+        error: String
+    ) {
+        showErrorMessage(error)
+    }
+
+    /** エリア選択ダイアログの OK タップのイベント リスナー */
+    override fun onAreaSelectDialogPositiveClick(
+        dialog: DialogFragment,
+        itemPosition: Int,
+        area: Pair<String, String>,
+        childArea: Pair<String, String>
+    ) {
+        updateWeatherListItem(itemPosition, area, childArea)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        mainView = binding.root
 
-        setSupportActionBar(binding.toolbar)
+        headers = arrayOf(
+            binding.header1,
+            binding.header2,
+            binding.header3,
+            binding.header4,
+            binding.header5,
+            binding.header6,
+            binding.header7,
+            binding.header8
+        )
 
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
-        appBarConfiguration = AppBarConfiguration(navController.graph)
-        setupActionBarWithNavController(navController, appBarConfiguration)
+        editButton = binding.fabEdit
+        updateButton = binding.fabSync
+        endEditButton = binding.fabEndEdit
+        addRowButton = binding.fabAddRow
 
-        binding.fab.setOnClickListener { view ->
-            Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                .setAction("Action", null)
-                .setAnchorView(R.id.fab).show()
+        weatherListAdapter = WeatherListAdapter(
+            this@MainActivity,
+            // rows,
+            ArrayList(),
+            { position, area, childArea -> onWeatherListViewEditClicked(position, area, childArea) }
+        )
+
+        binding.listview.adapter = weatherListAdapter
+        binding.listview.isClickable = true
+
+        editButton.setOnClickListener { setEditMode(true) }
+        updateButton.setOnClickListener { updateWeathers() }
+        endEditButton.setOnClickListener { onEndEditButtonClicked() }
+        addRowButton.setOnClickListener { onAddRowButtonClicked() }
+
+        initializePreference()
+    }
+
+    // Private Methods
+
+    /** 編集ボタン、更新ボタンを表示又は非表示にします。 */
+    private fun enableButtons(enabled: Boolean) {
+        editButton.isEnabled = enabled
+        updateButton.isEnabled = enabled
+    }
+
+    /** DataStore の変更フローを設定します。 */
+    private suspend fun initializeDataStoreFlow(flow: Flow<String>) {
+        flow.collect { onFlowCollected(it) }
+    }
+
+    /** Preference のための設定を初期化します。 */
+    private fun initializePreference() {
+        val flow: Flow<String> =
+            dataStore.data.catch { exception -> exception.message?.let { showErrorMessage(it) } }
+                .map { preferences -> preferences[Constants.settingsKey] ?: "" }
+
+        lifecycleScope.launch {
+            initializeDataStoreFlow(flow)
         }
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        menuInflater.inflate(R.menu.menu_main, menu)
-        return true
+    /** 行追加ボタンのタップ イベント リスナー */
+    private fun onAddRowButtonClicked() {
+        weatherListAdapter.add(
+            WeatherListDisplayData(
+                "",
+                "",
+                "",
+                "",
+                "",
+                mutableListOf(),
+                false,
+                true
+            )
+        )
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        return when (item.itemId) {
-            R.id.action_settings -> true
-            else -> super.onOptionsItemSelected(item)
+    /** 編集終了ボタンのタップ イベント リスナー */
+    private fun onEndEditButtonClicked() {
+        saveSettings()
+        setEditMode(false)
+    }
+
+    /** DataStore の更新時に呼び出され、表示中の ListView に反映します。 */
+    private fun onFlowCollected(value: String) {
+        if (value == "") {
+            weathersUpdateNeeded = false
+            return
+        }
+
+        var decoded: Array<WeatherListData>? = null
+
+        try {
+            decoded = Json.decodeFromString<Array<WeatherListData>>(value)
+        } catch (exception: Exception) {
+            exception.message?.let { message -> showErrorMessage(message) }
+        }
+
+        // ここは DataStore.edit からも呼ばれるため、初めにクリアする
+        weatherListAdapter.clear()
+
+        decoded?.let {
+            weatherListAdapter.addAll(decoded.map { d ->
+                WeatherListDisplayData(
+                    d.displayName,
+                    d.areaName,
+                    d.areaCode,
+                    d.childCode,
+                    d.childName,
+                    null,
+                    false,
+                    false
+                )
+            })
+        }
+
+        weatherListAdapter.notifyDataSetChanged()
+
+        if (weathersUpdateNeeded) {
+            updateWeathers()
+        }
+
+        weathersUpdateNeeded = false
+    }
+
+    /** HTTP GET により気象予報情報を取得した時の処理をします。 */
+    @UiThread
+    private fun onWeatherDataReceived(areaCode: String, result: Map<String, Array<WeatherData>>) {
+        for (childArea in result) {
+            for (i in 0 until weatherListAdapter.count) {
+                val listData = weatherListAdapter.getItem(i)
+                val childCode = listData!!.childCode
+
+                if (areaCode != listData.areaCode ||
+                    childCode != childArea.key
+                ) continue
+
+                val weathers = ArrayList<WeatherData>()
+
+                for (date in dates) {
+                    val weather = childArea.value.find { c -> c.date == date }
+
+                    if (weather == null) {
+                        weathers.add(
+                            WeatherData(areaCode, childCode, "", date, "", 0, "", R.drawable.blank)
+                        )
+                        continue
+                    }
+
+                    weathers.add(weather)
+                }
+
+                listData.weathers = weathers
+                listData.inProgress = false
+            }
+        }
+
+        weatherListAdapter.notifyDataSetChanged()
+    }
+
+    /** ListView 要素の編集ボタンのタップ イベント リスナー */
+    private fun onWeatherListViewEditClicked(
+        position: Int,
+        area: Pair<String, String>?,
+        childArea: Pair<String, String>?
+    ) {
+        AreaSelectDialogFragment().show(
+            area,
+            childArea,
+            position,
+            supportFragmentManager,
+            "DIALOG_SELECT_AREA"
+        )
+    }
+
+    /**
+     * 気象予報の更新完了時の処理をします。
+     * @param error 更新時に発生したエラー
+     */
+    @UiThread
+    private fun onWeathersUpdateCompleted(error: String?) {
+        error?.let {
+            showErrorMessage(it)
+        }
+
+        showProgressSpinner(false)
+        enableButtons(true)
+    }
+
+    /** [savedData] を JSON 形式で Preference に書き込みます。 */
+    private suspend fun saveJsonSettings(savedData: Array<WeatherListData>) {
+        this@MainActivity.dataStore.edit { settings ->
+            settings[Constants.settingsKey] = Json.encodeToString(savedData)
         }
     }
 
-    override fun onSupportNavigateUp(): Boolean {
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
-        return navController.navigateUp(appBarConfiguration)
-                || super.onSupportNavigateUp()
+    /** 現在の ListView の設定を保存します。 */
+    private fun saveSettings() {
+        val data = mutableListOf<WeatherListData>()
+
+        for (i in 0 until weatherListAdapter.count) {
+            weatherListAdapter.getItem(i)?.let { data.add(it) }
+        }
+
+        lifecycleScope.launch {
+            saveJsonSettings(data.toTypedArray())
+        }
+    }
+
+    /** 編集モードを有効化又は解除します。 */
+    private fun setEditMode(enabled: Boolean) {
+        for (i in 0 until weatherListAdapter.count) {
+            weatherListAdapter.getItem(i)?.isEditing = enabled
+        }
+
+        weatherListAdapter.notifyDataSetChanged()
+        editButton.isVisible = !enabled
+        updateButton.isVisible = !enabled
+        endEditButton.isVisible = enabled
+        addRowButton.isVisible = enabled
+    }
+
+    /** エラー メッセージを Snackbar に表示します。 */
+    @UiThread
+    private fun showErrorMessage(error: String) {
+        Snackbar.make(mainView, error, Snackbar.LENGTH_LONG)
+            .setAction("Action", null)
+            .show()
+    }
+
+    /** ListView の各要素の表示内容を処理中にします。 */
+    private fun showProgressSpinner(show: Boolean) {
+        for (i in 0 until weatherListAdapter.count) {
+            val listData = weatherListAdapter.getItem(i)
+            listData?.inProgress = show
+        }
+
+        weatherListAdapter.notifyDataSetChanged()
+    }
+
+    /** 日付を現在日時を基準に更新します。 */
+    private fun synchronizeWeek() {
+        val today = LocalDate.now()
+        val dates = ArrayList<LocalDate>()
+
+        for (i in 0 until headers.size) {
+            val date = today.plusDays(i.toLong())
+            headers[i].text = date.format(DateTimeFormatter.ofPattern("M/d\n(E)", Locale.JAPANESE))
+            dates.add(date)
+        }
+
+        this.dates = dates.toTypedArray()
+    }
+
+    /** ListView に紐づく [projectflower.forecaster.WeatherListDisplayData] を更新します。 */
+    private fun updateWeatherListItem(
+        itemPosition: Int,
+        area: Pair<String, String>,
+        childArea: Pair<String, String>
+    ) {
+        val item = weatherListAdapter.getItem(itemPosition)!!
+        item.areaCode = area.first
+        item.areaName = area.second
+        item.childCode = childArea.first
+        item.childName = childArea.second
+
+        item.displayName = when (area.first == childArea.first) {
+            true -> area.second
+            else -> "${area.second} ${childArea.second}"
+        }
+
+        weatherListAdapter.notifyDataSetChanged()
+    }
+
+    /** 気象予報を取得し、表示内容を更新します。 */
+    @UiThread
+    private fun updateWeathers() {
+        enableButtons(false)
+        synchronizeWeek()
+        showProgressSpinner(true)
+        val areaCodes = mutableMapOf<String, MutableSet<String>>()
+
+        for (i in 0 until weatherListAdapter.count) {
+            val listData = weatherListAdapter.getItem(i)
+            val areaCode = listData!!.areaCode
+
+            if (areaCode == "") continue // 追加しただけの行は空値になっているのでスキップ
+
+            var mapElement = areaCodes[areaCode]
+
+            if (mapElement == null) {
+                mapElement = mutableSetOf()
+            }
+
+            val childCode = listData.childCode
+
+            if (!mapElement.contains(childCode)) {
+                mapElement.add(childCode)
+            }
+
+            areaCodes[areaCode] = mapElement
+        }
+
+        lifecycleScope.launch {
+            var error: String? = null
+
+            for (areaCode in areaCodes) {
+                try {
+                    val result = HttpConnector.getWeathers(areaCode.key, areaCode.value.toSet())
+                    onWeatherDataReceived(areaCode.key, result)
+                } catch (exception: Exception) {
+                    exception.message?.let {
+                        Log.e("MainActivity", it)
+                    }
+
+                    // ユーザーには最初のエラーだけを表示する
+                    error = error ?: exception.message
+                }
+            }
+
+            onWeathersUpdateCompleted(error)
+        }
     }
 }
