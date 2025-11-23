@@ -3,7 +3,6 @@ package projectflower.forecaster
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.widget.TextView
 import androidx.annotation.UiThread
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -18,6 +17,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import projectflower.forecaster.databinding.ActivityMainBinding
+import projectflower.forecaster.databinding.DateHeaderBinding
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -29,7 +29,7 @@ class MainActivity : AppCompatActivity(), AreaSelectDialogFragment.NoticeDialogL
     private lateinit var dates: Array<LocalDate>
     private lateinit var editButton: FloatingActionButton
     private lateinit var endEditButton: FloatingActionButton
-    private lateinit var headers: Array<TextView>
+    private lateinit var headers: Array<DateHeaderBinding>
     private lateinit var weatherListAdapter: WeatherListAdapter
     private lateinit var updateButton: FloatingActionButton
     private lateinit var mainView: View
@@ -306,7 +306,9 @@ class MainActivity : AppCompatActivity(), AreaSelectDialogFragment.NoticeDialogL
 
         for (i in 0 until headers.size) {
             val date = today.plusDays(i.toLong())
-            headers[i].text = date.format(DateTimeFormatter.ofPattern("M/d\n(E)", Locale.JAPANESE))
+            val header = headers[i]
+            header.day.text = date.format(DateTimeFormatter.ofPattern("M/d", Locale.JAPANESE))
+            header.weekday.text = date.format(DateTimeFormatter.ofPattern("(E)", Locale.JAPANESE))
             dates.add(date)
         }
 
