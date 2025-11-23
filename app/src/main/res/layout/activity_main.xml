@@ -16,7 +16,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="10dp"
-            android:paddingHorizontal="10dp">
+            android:paddingHorizontal="4dp">
 
             <View
                 android:layout_width="0dp"
@@ -57,15 +57,14 @@
                 layout="@layout/date_header" />
         </LinearLayout>
 
-        <ListView
+        <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/listview"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:clipToPadding="false"
             android:divider="@android:color/transparent"
             android:dividerHeight="10.0sp"
-            android:paddingHorizontal="10dp"
-            android:paddingBottom="24dp"
+            android:paddingHorizontal="4dp"
             android:scrollbars="horizontal"
             tools:listitem="@layout/listview_item" />
     </LinearLayout>
