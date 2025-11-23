@@ -49,71 +49,92 @@ class JsonAnalyzer {
             children: Set<String>
         ): Map<String, Array<WeatherData>> {
             val jsonRoot = JSONArray(responseBody)
-            val nearlyWeather = jsonRoot.getJSONObject(0)
-            val timeSeries = nearlyWeather.getJSONArray("timeSeries")
-            val timeSeries1 = timeSeries.getJSONObject(0)
-            val todayAreas = timeSeries1.getJSONArray("areas")
+            // jsonRoot[0]
+            val element1 = jsonRoot.getJSONObject(0)
+            // jsonRoot[0].timeSeries[0]
+            val upcomingTimeSeries1 = element1.getJSONArray("timeSeries").getJSONObject(0)
+            // jsonRoot[0].timeSeries[0].areas
+            val upcomingAreas = upcomingTimeSeries1.getJSONArray("areas")
+            // jsonRoot[0].timeSeries[0].timeDefines
+            val upcomingDates = upcomingTimeSeries1.getJSONArray("timeDefines")
             val tempResult = mutableMapOf<String, ArrayList<WeatherData>>()
             val todayWeathers = mutableMapOf<String, String>()
-            val firstDate = LocalDate.parse(
-                timeSeries1.getJSONArray("timeDefines").getString(0),
-                DateTimeFormatter.ISO_OFFSET_DATE_TIME
-            )
 
-            // 当日の天気
-            for (i in 0 until todayAreas.length()) {
-                val area = todayAreas.getJSONObject(i)
-                val childCode = area.getJSONObject("area").getString("code")
-                val weatherCode = area.getJSONArray("weatherCodes").getString(0)
-                todayWeathers[childCode] = weatherCode
-            }
-
-            // 週間天気の今日の天気の取得の仕方がわからないので、
-            // 最も多く出現する天気を選択する
-            val representativeWeather =
-                todayWeathers.values.groupBy { it }.maxByOrNull { it.value.size }?.value[0] ?: ""
-
-            for (childCode in children) {
-                val weatherCode = when {
-                    todayWeathers.containsKey(childCode) -> todayWeathers[childCode]
-                    else -> representativeWeather
+            // 直近の天気
+            for (i in 0 until upcomingDates.length()) {
+                for (j in 0 until upcomingAreas.length()) {
+                    // jsonRoot[0].timeSeries[0].areas[j]
+                    val childArea = upcomingAreas.getJSONObject(j)
+                    // jsonRoot[0].timeSeries[0].areas[j].area.code
+                    val childCode = childArea.getJSONObject("area").getString("code")
+                    // jsonRoot[0].timeSeries[0].areas[j].weatherCodes[i]
+                    val weatherCode = childArea.getJSONArray("weatherCodes").getString(i)
+                    todayWeathers[childCode] = weatherCode
                 }
 
-                val weather = WeatherData(
-                    areaCode,
-                    childCode,
-                    "",
-                    firstDate,
-                    weatherCode!!,
-                    -1,
-                    "",
-                    WeatherCodes.getImageResource(weatherCode)
-                )
+                // 週間天気の今日の天気の取得の仕方がわからないので、
+                // 最も多く出現する天気を選択する
+                val representativeWeather =
+                    todayWeathers.values.groupBy { it }.maxByOrNull { it.value.size }?.value[0]
+                        ?: ""
 
-                var element = tempResult[childCode]
+                for (childCode in children) {
+                    val weatherCode = when {
+                        todayWeathers.containsKey(childCode) -> todayWeathers[childCode]
+                        else -> representativeWeather
+                    }
 
-                if (element == null) {
-                    element = ArrayList()
+                    val weather = WeatherData(
+                        areaCode,
+                        childCode,
+                        "",
+                        LocalDate.parse(
+                            // jsonRoot[0].timeSeries[0].timeDefines[i]
+                            upcomingDates.getString(i),
+                            DateTimeFormatter.ISO_OFFSET_DATE_TIME
+                        ),
+                        weatherCode!!,
+                        -1,
+                        "",
+                        WeatherCodes.getImageResource(weatherCode)
+                    )
+
+                    var element = tempResult[childCode]
+
+                    if (element == null) {
+                        element = ArrayList()
+                    } else if (element.any { it.date == weather.date }) {
+                        // 基本的に同じ日付が 2 つ以上現れることはないはずだが、
+                        // もし存在すれば最初のデータを採用する
+                        continue
+                    }
+
+                    element.add(weather)
+                    tempResult[childCode] = element
                 }
-
-                element.add(weather)
-                tempResult[childCode] = element
             }
 
             // 翌日以降の天気
+            // jsonRoot[1].timeSeries[0]
             val weeklyData =
                 jsonRoot.getJSONObject(1).getJSONArray("timeSeries").getJSONObject(0)
+            // jsonRoot[1].timeSeries[0].timeDefines
             val timeDefines = weeklyData.getJSONArray("timeDefines")
-            val areas = weeklyData.getJSONArray("areas")
+            // jsonRoot[1].timeSeries[0].areas
+            val childAreas = weeklyData.getJSONArray("areas")
 
-            for (i in 0 until areas.length()) {
-                val area = areas.getJSONObject(i)
-                val areaInfo = area.getJSONObject("area")
+            for (i in 0 until childAreas.length()) {
+                // jsonRoot[1].timeSeries[0].areas[i]
+                val childArea = childAreas.getJSONObject(i)
+                // jsonRoot[1].timeSeries[0].areas[i].area
+                val areaInfo = childArea.getJSONObject("area")
+                // jsonRoot[1].timeSeries[0].areas[i].area.code
                 val childCode = areaInfo.getString("code")
 
                 if (!children.contains(childCode)) continue
 
-                val weathers = area.getJSONArray("weatherCodes")
+                // jsonRoot[1].timeSeries[0].areas[i].weatherCodes
+                val weathers = childArea.getJSONArray("weatherCodes")
 
                 for (j in 0 until weathers.length()) {
                     val weatherCode = weathers.getString(j)
@@ -121,21 +142,28 @@ class JsonAnalyzer {
                     val weather = WeatherData(
                         areaCode,
                         childCode,
+                        // jsonRoot[1].timeSeries[0].areas[i].area.name
                         areaInfo.getString("name"),
                         LocalDate.parse(
+                            // jsonRoot[1].timeSeries[0].timeDefines[j]
                             timeDefines.getString(j),
                             DateTimeFormatter.ISO_OFFSET_DATE_TIME
                         ),
                         weatherCode,
-                        area.getJSONArray("pops").getString(j).toIntOrNull() ?: -1,
-                        area.getJSONArray("reliabilities").getString(i),
+                        // jsonRoot[1].timeSeries[0].areas[i].pops[j]
+                        childArea.getJSONArray("pops").getString(j).toIntOrNull() ?: -1,
+                        // jsonRoot[1].timeSeries[0].areas[i].reliabilities[i]
+                        childArea.getJSONArray("reliabilities").getString(i),
                         WeatherCodes.getImageResource(weatherCode)
                     )
 
                     var element = tempResult[childCode]
 
                     if (element == null) {
-                        element = ArrayList<WeatherData>()
+                        element = ArrayList()
+                    } else if (element.any { it.date == weather.date }) {
+                        // 直近の天気に含まれている場合は、直近の天気を採用する
+                        continue
                     }
 
                     element.add(weather)
