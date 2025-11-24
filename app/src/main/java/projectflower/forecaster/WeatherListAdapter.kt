@@ -9,6 +9,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.annotation.UiThread
 import androidx.core.view.isVisible
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.imageview.ShapeableImageView
 import java.time.LocalDate
@@ -58,8 +59,34 @@ class WeatherListAdapter(
 
     // Private Fields
 
+    private var attachedView: RecyclerView? = null
     private val inflater = LayoutInflater.from(context)
     private var mInProgress = false
+
+    private val touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+        ItemTouchHelper.UP or ItemTouchHelper.DOWN,
+        ItemTouchHelper.ACTION_STATE_IDLE
+    ) {
+        override fun onMove(
+            recyclerView: RecyclerView,
+            viewHolder: RecyclerView.ViewHolder,
+            target: RecyclerView.ViewHolder
+        ): Boolean {
+            val fromPosition = viewHolder.adapterPosition
+            val toPosition = target.adapterPosition
+            val from = dataList[fromPosition]
+            dataList.removeAt(fromPosition)
+            dataList.add(toPosition, from)
+            notifyItemMoved(fromPosition, toPosition)
+            return true
+        }
+
+        override fun onSwiped(
+            viewHolder: RecyclerView.ViewHolder,
+            direction: Int
+        ) {
+        }
+    })
 
     // Properties
 
@@ -76,6 +103,12 @@ class WeatherListAdapter(
             }
 
             field = value
+
+            if (value) {
+                attachedView?.let { touchHelper.attachToRecyclerView(it) }
+            }
+            else { touchHelper.attachToRecyclerView(null) }
+
             notifyItemRangeChanged(0, dataList.size)
         }
 
@@ -83,6 +116,11 @@ class WeatherListAdapter(
 
     override fun getItemCount(): Int {
         return dataList.size
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        this.attachedView = recyclerView
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -152,6 +190,11 @@ class WeatherListAdapter(
         parent: ViewGroup, viewType: Int
     ): ViewHolder {
         return ViewHolder(inflater.inflate(R.layout.listview_item, parent, false))
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        this.attachedView = null
     }
 
     // Public Methods
