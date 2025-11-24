@@ -65,6 +65,7 @@
             android:divider="@android:color/transparent"
             android:dividerHeight="10.0sp"
             android:paddingHorizontal="4dp"
+            android:paddingBottom="160dp"
             android:scrollbars="horizontal"
             tools:listitem="@layout/listview_item" />
     </LinearLayout>
