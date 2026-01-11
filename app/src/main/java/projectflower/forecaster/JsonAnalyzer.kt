@@ -58,7 +58,7 @@ class JsonAnalyzer {
             // jsonRoot[0].timeSeries[0].timeDefines
             val upcomingDates = upcomingTimeSeries1.getJSONArray("timeDefines")
             val tempResult = mutableMapOf<String, ArrayList<WeatherData>>()
-            val todayWeathers = mutableMapOf<String, String>()
+            val todayWeathers = mutableMapOf<String, Pair<String, String>>()
 
             // 直近の天気
             for (i in 0 until upcomingDates.length()) {
@@ -69,22 +69,26 @@ class JsonAnalyzer {
                     val childCode = childArea.getJSONObject("area").getString("code")
                     // jsonRoot[0].timeSeries[0].areas[j].weatherCodes[i]
                     val weatherCode = childArea.getJSONArray("weatherCodes").getString(i)
-                    todayWeathers[childCode] = weatherCode
+                    // jsonRoot[0].timeSeries[0].areas[j].weathers[i]
+                    val weatherDescription = childArea.getJSONArray("weathers").getString(i)
+                    todayWeathers[childCode] = Pair(weatherCode, weatherDescription)
                 }
 
                 // 週間天気の今日の天気の取得の仕方がわからないので、
                 // 最も多く出現する天気を選択する
                 val representativeWeather =
                     todayWeathers.values.groupBy { it }.maxByOrNull { it.value.size }?.value[0]
-                        ?: ""
+                        ?: Pair("", "")
 
                 for (childCode in children) {
-                    val weatherCode = when {
+                    val weather = when {
                         todayWeathers.containsKey(childCode) -> todayWeathers[childCode]
                         else -> representativeWeather
                     }
 
-                    val weather = WeatherData(
+                    val weatherCode = weather!!.first
+
+                    val weatherData = WeatherData(
                         areaCode,
                         childCode,
                         "",
@@ -93,7 +97,8 @@ class JsonAnalyzer {
                             upcomingDates.getString(i),
                             DateTimeFormatter.ISO_OFFSET_DATE_TIME
                         ),
-                        weatherCode!!,
+                        weatherCode,
+                        weather.second,
                         -1,
                         "",
                         WeatherCodes.getImageResource(weatherCode)
@@ -103,13 +108,13 @@ class JsonAnalyzer {
 
                     if (element == null) {
                         element = ArrayList()
-                    } else if (element.any { it.date == weather.date }) {
+                    } else if (element.any { it.date == weatherData.date }) {
                         // 基本的に同じ日付が 2 つ以上現れることはないはずだが、
                         // もし存在すれば最初のデータを採用する
                         continue
                     }
 
-                    element.add(weather)
+                    element.add(weatherData)
                     tempResult[childCode] = element
                 }
             }
@@ -139,7 +144,7 @@ class JsonAnalyzer {
                 for (j in 0 until weathers.length()) {
                     val weatherCode = weathers.getString(j)
 
-                    val weather = WeatherData(
+                    val weatherData = WeatherData(
                         areaCode,
                         childCode,
                         // jsonRoot[1].timeSeries[0].areas[i].area.name
@@ -150,6 +155,7 @@ class JsonAnalyzer {
                             DateTimeFormatter.ISO_OFFSET_DATE_TIME
                         ),
                         weatherCode,
+                        "",
                         // jsonRoot[1].timeSeries[0].areas[i].pops[j]
                         childArea.getJSONArray("pops").getString(j).toIntOrNull() ?: -1,
                         // jsonRoot[1].timeSeries[0].areas[i].reliabilities[i]
@@ -161,12 +167,12 @@ class JsonAnalyzer {
 
                     if (element == null) {
                         element = ArrayList()
-                    } else if (element.any { it.date == weather.date }) {
+                    } else if (element.any { it.date == weatherData.date }) {
                         // 直近の天気に含まれている場合は、直近の天気を採用する
                         continue
                     }
 
-                    element.add(weather)
+                    element.add(weatherData)
                     tempResult[childCode] = element
                 }
             }

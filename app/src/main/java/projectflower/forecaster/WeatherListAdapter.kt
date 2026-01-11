@@ -135,6 +135,7 @@ class WeatherListAdapter(
 
                 if (inProgress) {
                     image.setImageResource(R.drawable.blank)
+                    image.tooltipText = null
                 }
             }
         }
@@ -176,14 +177,17 @@ class WeatherListAdapter(
 
         for (i in 0 until images.size) {
             var imageId = R.drawable.blank
+            var weatherDescription: String? = null
 
             weathers?.let {
                 if (it.size > i) {
                     imageId = it[i].image
+                    weatherDescription = it[i].weatherDescription
                 }
             }
 
             images[i].setImageResource(imageId)
+            images[i].tooltipText = weatherDescription
             images[i].isVisible = !(current.inProgress || isEditing)
         }
     }
@@ -331,7 +335,7 @@ class WeatherListAdapter(
 
                     if (weather == null) {
                         weathers.add(
-                            WeatherData(areaCode, childCode, "", date, "", 0, "", R.drawable.blank)
+                            WeatherData(areaCode, childCode, "", date, "", "", 0, "", R.drawable.blank)
                         )
                         continue
                     }

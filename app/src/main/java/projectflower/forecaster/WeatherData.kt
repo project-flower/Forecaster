@@ -8,6 +8,7 @@ class WeatherData (
     var areaName: String,
     var date: LocalDate,
     var weatherCode: String,
+    var weatherDescription: String,
     var pop: Int,
     var reliability: String,
     var image: Int
