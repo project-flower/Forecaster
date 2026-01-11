@@ -143,6 +143,7 @@ class WeatherListAdapter(
         editButton.isVisible = isEditing
 
         editButton.setOnClickListener { view ->
+            val position = holder.adapterPosition
             val data = dataList[position]
 
             val area = when (data.areaCode != "") {
@@ -164,6 +165,7 @@ class WeatherListAdapter(
         deleteButton.isVisible = isEditing
 
         deleteButton.setOnClickListener { view ->
+            val position = holder.adapterPosition
             dataList.removeAt(position)
             notifyItemRemoved(position)
         }
