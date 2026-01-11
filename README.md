@@ -2,6 +2,8 @@
 
 日本国内の一週間の気象情報を表示します。
 
+![](readme/Forecaster.png)
+
 # 動作環境
 
 Android 12 Snow Cone 以上
